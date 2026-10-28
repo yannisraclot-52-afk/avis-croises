@@ -12,7 +12,9 @@
     <link rel="stylesheet" href="styles.css">
     <script src="propositions.js" defer></script>
     <script src="config.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
     <script src="clustering.js" defer></script>
+    <script src="storage.js" defer></script>
     <script src="app.js" defer></script>
   </head>
   <body>
@@ -41,7 +43,7 @@
 
     <footer class="page-footer">
       <span>Avis croisés <span class="footer-dot">/</span> version de préparation</span>
-      <span>Les réponses de cette version restent dans ce navigateur.</span>
+      <span id="storage-status">Les réponses de cette version restent dans ce navigateur.</span>
     </footer>
   </body>
 </html>

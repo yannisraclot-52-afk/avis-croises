@@ -60,6 +60,8 @@ h1 em, h2 em { color: var(--green); font-weight: 500; }
 .next-button span, .back-button span { font-size: 17px; }
 .local-note { margin: 15px 0 0; color: var(--muted); font-size: 11px; }
 .local-note span { margin-right: 5px; color: var(--gold); font-size: 9px; }
+.consent-check { margin: 13px 0 0 !important; display: flex !important; align-items: start; gap: 8px; color: var(--muted); font-size: 11px !important; font-weight: 500 !important; line-height: 1.4; }
+.consent-check input { width: 16px; height: 16px; flex: 0 0 auto; margin: 1px 0 0; accent-color: var(--green); }
 .restore-form { grid-column: 2 / -1; align-self: start; max-width: 520px; padding: 14px 0 20px; border-top: 1px solid var(--line); }
 .restore-form label { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 700; }
 .restore-form input { min-width: 0; min-height: 42px; flex: 1; padding: 0 12px; border: 1px solid #bec3b8; border-radius: 2px; background: var(--surface); color: var(--ink); font-family: var(--mono); text-transform: uppercase; }
@@ -117,6 +119,8 @@ h1 em, h2 em { color: var(--green); font-weight: 500; }
 .admin-login h2 { font-size: 38px; }
 .admin-login > div > p:not(.section-label) { color: var(--muted); font-size: 13px; }
 .admin-form { margin-top: 22px; }
+.admin-form > input { width: 100%; min-height: 44px; margin: 0 0 12px; padding: 0 11px; border: 1px solid #bec3b8; border-radius: 2px; background: var(--surface); color: var(--ink); }
+.admin-form > .next-button { width: auto; }
 .form-error { min-height: 18px; margin: 7px 0 0; color: #a54131; font-size: 12px; }
 .security-note { padding: 11px 13px; border-left: 2px solid var(--gold); background: #ebe9df; font-size: 11px !important; }
 .empty-notice { min-height: 260px; padding: 36px; }

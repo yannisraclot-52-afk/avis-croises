@@ -17,6 +17,10 @@ let activeView = 'survey';
 let adminUnlocked = false;
 let showingMyResults = false;
 let selectedIndividualId = null;
+let remoteDataReady = !SurveyStorage.isRemote;
+let remoteDataError = '';
+let submissionError = '';
+let submissionPending = false;
 
 if (draft.started && !Array.isArray(draft.order)) {
   draft.order = Array.from({ length: PROPOSAL_COUNT }, (_, index) => index);
@@ -156,7 +160,10 @@ function opinionLabel(value) {
 }
 
 function setView(view) {
-  if (view !== 'admin') adminUnlocked = false;
+  if (view !== 'admin') {
+    adminUnlocked = false;
+    if (SurveyStorage.isRemote) void SurveyStorage.signOut();
+  }
   activeView = view;
   navButtons.forEach((button) => {
     const selected = button.dataset.view === view;
@@ -171,11 +178,33 @@ function render() {
     appView.innerHTML = `<div class="empty-notice"><h2>Les propositions ne sont pas prêtes.</h2><p>Le questionnaire attend une liste de ${PROPOSAL_COUNT} noms dans <code>propositions.js</code>.</p></div>`;
     return;
   }
+  if (SurveyStorage.isRemote && !remoteDataReady) {
+    appView.innerHTML = '<div class="loading-state"><span class="loader"></span><span>Connexion à la base partagée…</span></div>';
+    return;
+  }
+  if (remoteDataError) {
+    appView.innerHTML = `<div class="error-state"><h3>Connexion à la base impossible.</h3><p>${escapeHtml(remoteDataError)}</p><button class="outline-button" type="button" data-action="retry-storage">Réessayer</button></div>`;
+    return;
+  }
   if (activeView === 'admin') {
     appView.innerHTML = adminUnlocked ? renderAdmin() : renderAdminLogin();
     return;
   }
   appView.innerHTML = renderSurvey();
+}
+
+async function reloadRemoteData() {
+  if (!SurveyStorage.isRemote) return;
+  remoteDataReady = false;
+  remoteDataError = '';
+  render();
+  try {
+    [responses, groupNames] = await Promise.all([SurveyStorage.loadResponses(), SurveyStorage.loadGroupNames()]);
+  } catch (error) {
+    remoteDataError = error.message || 'Vérifie les identifiants Supabase et le schéma de base de données.';
+  }
+  remoteDataReady = true;
+  render();
 }
 
 function renderSurvey() {
@@ -204,8 +233,9 @@ function renderSurvey() {
         </div>
         <div class="question-actions">
           <button type="button" class="back-button" data-action="back" ${index === 0 ? 'disabled' : ''}><span aria-hidden="true">←</span> Précédent</button>
-          <button type="button" class="next-button" data-action="next" ${selected === undefined ? 'disabled' : ''}>${index === PROPOSAL_COUNT - 1 ? 'Terminer' : 'Continuer'} <span aria-hidden="true">→</span></button>
+          <button type="button" class="next-button" data-action="next" ${selected === undefined || submissionPending ? 'disabled' : ''}>${submissionPending ? 'Enregistrement…' : index === PROPOSAL_COUNT - 1 ? 'Terminer' : 'Continuer'} <span aria-hidden="true">→</span></button>
         </div>
+        ${submissionError ? `<p class="form-error" role="alert">${escapeHtml(submissionError)}</p>` : ''}
       </section>
     </div>`;
 }
@@ -221,14 +251,15 @@ function renderWelcome() {
         <form id="start-form" class="start-form">
           <label for="respondent-name">Ton prénom ou ton pseudo</label>
           <div class="start-row"><input id="respondent-name" name="name" maxlength="40" autocomplete="nickname" placeholder="Ex. Alex" required value="${escapeHtml(draft.name || '')}"><button class="next-button" type="submit">Commencer <span aria-hidden="true">→</span></button></div>
+          <label class="consent-check"><input name="consent" type="checkbox" required><span>J’accepte que mon prénom ou pseudo et mes réponses soient partagés avec les autres répondants et l’administrateur.</span></label>
         </form>
-        <p class="local-note"><span aria-hidden="true">●</span> Version de préparation : les réponses sont enregistrées sur cet appareil.</p>
+        <p class="local-note"><span aria-hidden="true">●</span> ${SurveyStorage.isRemote ? 'Les réponses sont partagées en ligne avec tous les répondants.' : 'Version locale : les réponses sont enregistrées sur cet appareil.'}</p>
       </div>
       <div class="welcome-aside" aria-hidden="true"><span class="orbit orbit-one"></span><span class="orbit orbit-two"></span><span class="orbit orbit-three"></span><span class="orbit-center">AC</span><span class="aside-caption">30 regards<br>une même question</span></div>
       <form id="restore-form" class="restore-form">
         <label for="recovery-code">Déjà répondu ? Retrouve ton profil avec ton code retour.</label>
-        <div class="start-row"><input id="recovery-code" name="recoveryCode" maxlength="8" autocomplete="off" placeholder="Ex. A1B2C3D4" required><button class="outline-button" type="submit">Retrouver mon profil</button></div>
-        <p class="restore-note">Le code fonctionne sur le navigateur où ta réponse a été enregistrée.</p>
+        <div class="start-row"><input id="recovery-code" name="recoveryCode" maxlength="24" autocomplete="off" placeholder="Ton code retour" required><button class="outline-button" type="submit">Retrouver mon profil</button></div>
+        <p class="restore-note">${SurveyStorage.isRemote ? 'Ton code te permet de retrouver ton profil depuis un autre appareil.' : 'Le code fonctionne sur le navigateur où ta réponse a été enregistrée.'}</p>
         <p id="restore-error" class="form-error" role="alert"></p>
       </form>
     </section>`;
@@ -241,7 +272,7 @@ function renderThankYou() {
       <div class="completion-stamp" aria-hidden="true">30<span>/30</span></div>
       <p class="section-label">Questionnaire terminé</p>
       <h2 id="completion-title">Merci, ${escapeHtml(draft.name)}.<br><em>Ton avis compte.</em></h2>
-      <p>Garde ce code pour retrouver ton profil après avoir quitté le site. Il fonctionne sur ce navigateur; pour retrouver ta réponse depuis un autre appareil, il faudra une base en ligne.</p>
+      <p>${SurveyStorage.isRemote ? 'Garde ce code pour retrouver ton profil et ses nouvelles comparaisons depuis n’importe quel ordinateur.' : 'Garde ce code pour retrouver ton profil sur ce navigateur. Une base partagée sera nécessaire pour le retrouver depuis un autre ordinateur.'}</p>
       <div class="recovery-code"><span>Ton code retour</span><strong>${escapeHtml(draft.recoveryCode || '')}</strong></div>
       <div class="completion-actions"><button class="next-button" type="button" data-action="view-my-results">Voir l'évolution <span aria-hidden="true">→</span></button><button class="outline-button" type="button" data-action="download-mine">Télécharger ma réponse <span aria-hidden="true">↓</span></button><button class="back-button" type="button" data-action="new-response">Nouvelle réponse</button></div>
       <script type="application/json" id="response-payload">${JSON.stringify(payload).replace(/</g, '\\u003c')}</script>
@@ -249,12 +280,18 @@ function renderThankYou() {
 }
 
 function renderAdminLogin() {
+  const credentials = SurveyStorage.isRemote
+    ? '<label for="admin-email">Adresse e-mail</label><input id="admin-email" type="email" autocomplete="username" required><label for="admin-password">Mot de passe</label><input id="admin-password" type="password" autocomplete="current-password" required><button class="next-button" type="submit">Connexion admin <span aria-hidden="true">→</span></button>'
+    : '<label for="admin-code">Code administrateur</label><div class="start-row"><input id="admin-code" type="password" autocomplete="current-password" required><button class="next-button" type="submit">Ouvrir <span aria-hidden="true">→</span></button></div>';
+  const adminDescription = SurveyStorage.isRemote
+    ? 'Connecte-toi avec le compte administrateur Supabase autorisé pour ce questionnaire.'
+    : 'Entre le code local pour consulter et exporter les réponses enregistrées sur cet appareil.';
   return `
     <section class="admin-login" aria-labelledby="admin-title">
       <div class="admin-login-mark" aria-hidden="true">AC</div>
-      <div><p class="section-label">Espace réservé</p><h2 id="admin-title">Administration</h2><p>Entre le code local pour consulter et exporter les réponses enregistrées sur cet appareil.</p>
-        <form id="admin-form" class="admin-form"><label for="admin-code">Code administrateur</label><div class="start-row"><input id="admin-code" type="password" autocomplete="current-password" required><button class="next-button" type="submit">Ouvrir <span aria-hidden="true">→</span></button></div><p id="admin-error" class="form-error" role="alert"></p></form>
-        <p class="security-note"><strong>Prototype uniquement.</strong> Le code est visible dans les fichiers du site et ne protège pas de vraies données. Une base partagée et une authentification serveur seront nécessaires avant le déploiement public.</p>
+      <div><p class="section-label">Espace réservé</p><h2 id="admin-title">Administration</h2><p>${adminDescription}</p>
+        <form id="admin-form" class="admin-form">${credentials}<p id="admin-error" class="form-error" role="alert"></p></form>
+        ${SurveyStorage.isRemote ? '' : '<p class="security-note"><strong>Prototype local.</strong> Le code de démonstration est visible dans les fichiers et ne protège pas les réponses d’un site public.</p>'}
       </div>
     </section>`;
 }
@@ -453,7 +490,7 @@ function renderAdmin() {
   return `
     <section class="admin-dashboard" aria-labelledby="admin-dashboard-title">
       <div class="admin-heading"><div><p class="section-label">Vue administrateur</p><h2 id="admin-dashboard-title">Les réponses <em>en commun.</em></h2></div><button class="back-button" type="button" data-action="lock-admin">Verrouiller</button></div>
-      <div class="admin-warning"><span aria-hidden="true">!</span><p><strong>Stockage local uniquement.</strong> Ces résultats ne viennent que de ce navigateur. Les participants peuvent télécharger leur réponse pour te la transmettre, puis tu peux importer les fichiers ici.</p></div>
+      <div class="admin-warning"><span aria-hidden="true">!</span><p>${SurveyStorage.isRemote ? '<strong>Base partagée active.</strong> Les répondants voient les noms et avis nécessaires à la carte commune. Seul un compte admin autorisé peut renommer les groupes.' : '<strong>Stockage local uniquement.</strong> Ces résultats ne viennent que de ce navigateur. Les participants peuvent télécharger leur réponse pour te la transmettre, puis tu peux importer les fichiers ici.'}</p></div>
       <div class="admin-toolbar"><div class="response-total"><strong>${completed.length}</strong><span>réponse${completed.length === 1 ? '' : 's'} complète${completed.length === 1 ? '' : 's'}</span></div><div class="toolbar-actions"><button class="outline-button" type="button" data-action="export-all">Exporter les résultats</button><label class="outline-button file-button">Importer des réponses<input type="file" accept=".json,application/json" data-import-responses></label></div></div>
       <div class="results-section"><div class="results-heading"><div><p class="section-label">Carte des avis</p><h3>Les groupes qui se ressemblent</h3></div><span class="results-caption">Couleur = cluster K-means · position = projection ACP<br>Survole un point pour lire le nom</span></div>${renderClusterGraph(completed, { groupLabels: graphLabels })}</div>
       ${analysis ? `<section class="results-section insights-section"><div class="results-heading"><div><p class="section-label">Lecture des groupes</p><h3>Ce qui les rapproche et les distingue</h3></div><span class="results-caption">Signaux descriptifs, pas des explications causales</span></div><p class="insights-intro">Renomme chaque groupe. La cohésion compare toutes les paires de réponses; les signaux indiquent les propositions les plus caractéristiques de chaque groupe par rapport à l’ensemble.</p><div class="group-cards">${analysis.groups.map(renderGroupDetails).join('')}</div></section><section class="results-section differentiators-section"><div class="results-heading"><div><p class="section-label">Vue transversale</p><h3>Les propositions qui séparent le plus les groupes</h3></div><span class="results-caption">Écart entre les moyennes des groupes sur une échelle de −2 à +2</span></div>${renderDifferentiators(analysis.differentiators)}</section>` : ''}
@@ -477,17 +514,31 @@ function downloadJson(filename, data) {
   URL.revokeObjectURL(url);
 }
 
-function finishSurvey() {
-  if (draft.answers.length !== PROPOSAL_COUNT || draft.answers.some((answer) => answer === undefined)) return;
+async function finishSurvey() {
+  if (submissionPending || draft.answers.length !== PROPOSAL_COUNT || draft.answers.some((answer) => answer === undefined)) return;
+  submissionPending = true;
+  submissionError = '';
+  render();
+  const randomBytes = globalThis.crypto?.getRandomValues?.(new Uint8Array(12));
+  const recoveryCode = randomBytes
+    ? [...randomBytes].map((value) => value.toString(16).padStart(2, '0')).join('').toUpperCase()
+    : Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join('').toUpperCase();
+  const response = { id: createResponseId(), name: draft.name, answers: draft.answers, questionOrder: draft.order, completedAt: new Date().toISOString(), recoveryCode };
+  try {
+    if (SurveyStorage.isRemote) await SurveyStorage.saveResponse(response);
+  } catch (error) {
+    submissionPending = false;
+    submissionError = `Impossible d’enregistrer ta réponse dans la base partagée. ${error.message}`;
+    render();
+    return;
+  }
+  submissionPending = false;
   draft.finished = true;
-  draft.completedAt = new Date().toISOString();
-  const randomBytes = globalThis.crypto?.getRandomValues?.(new Uint8Array(4));
-  const recoveryCode = randomBytes ? [...randomBytes].map((value) => value.toString(16).padStart(2, '0')).join('').toUpperCase() : Math.random().toString(36).slice(2, 10).toUpperCase();
-  const response = { id: createResponseId(), name: draft.name, answers: draft.answers, questionOrder: draft.order, completedAt: draft.completedAt, recoveryCode };
+  draft.completedAt = response.completedAt;
   draft.recoveryCode = recoveryCode;
   draft.responseId = response.id;
   responses.push(response);
-  saveResponses();
+  if (!SurveyStorage.isRemote) saveResponses();
   saveDraft();
   render();
 }
@@ -527,7 +578,9 @@ document.addEventListener('click', (event) => {
   } else if (action === 'back-to-thanks') {
     showingMyResults = false; render();
   } else if (action === 'lock-admin') {
-    adminUnlocked = false; render();
+    adminUnlocked = false;
+    if (SurveyStorage.isRemote) void SurveyStorage.signOut();
+    render();
   } else if (action === 'show-individual') {
     selectedIndividualId = selectedIndividualId === actionTarget.dataset.responseId ? null : actionTarget.dataset.responseId;
     render();
@@ -536,30 +589,52 @@ document.addEventListener('click', (event) => {
   } else if (action === 'export-all') {
     const exportableResponses = responses.filter(isValidResponse).map(({ recoveryCode, ...response }) => response);
     downloadJson('avis-croises-resultats.json', { format: 1, proposals, groupNames, responses: exportableResponses });
+  } else if (action === 'retry-storage') {
+    void reloadRemoteData();
   }
 });
 
-document.addEventListener('submit', (event) => {
+document.addEventListener('submit', async (event) => {
   if (event.target.matches('#start-form')) {
     event.preventDefault();
-    const name = new FormData(event.target).get('name')?.toString().trim();
-    if (!name) return;
+    const formData = new FormData(event.target);
+    const name = formData.get('name')?.toString().trim();
+    if (!name || formData.get('consent') !== 'on') return;
     draft = { name, answers: [], index: 0, order: shuffledProposalOrder(), started: true };
     saveDraft(); render();
   } else if (event.target.matches('#restore-form')) {
     event.preventDefault();
     const code = new FormData(event.target).get('recoveryCode')?.toString().trim().toUpperCase();
-    const savedResponse = responses.find((response) => response.recoveryCode === code && isValidResponse(response));
+    let savedResponse = responses.find((response) => response.recoveryCode === code && isValidResponse(response));
+    if (!savedResponse && SurveyStorage.isRemote) {
+      try {
+        savedResponse = await SurveyStorage.restoreResponse(code);
+      } catch (error) {
+        event.target.querySelector('#restore-error').textContent = error.message || 'Impossible de contacter la base partagée.';
+        return;
+      }
+    }
     if (!savedResponse) {
-      event.target.querySelector('#restore-error').textContent = 'Code inconnu sur ce navigateur. Vérifie le code ou reviens sur l’appareil utilisé pour répondre.';
+      event.target.querySelector('#restore-error').textContent = SurveyStorage.isRemote
+        ? 'Code inconnu. Vérifie le code retour reçu à la fin du questionnaire.'
+        : 'Code inconnu sur ce navigateur. Vérifie le code ou reviens sur l’appareil utilisé pour répondre.';
       return;
     }
-    draft = { name: savedResponse.name, answers: savedResponse.answers, index: PROPOSAL_COUNT - 1, started: true, finished: true, completedAt: savedResponse.completedAt, responseId: savedResponse.id, recoveryCode: savedResponse.recoveryCode };
+    draft = { name: savedResponse.name, answers: savedResponse.answers, index: PROPOSAL_COUNT - 1, started: true, finished: true, completedAt: savedResponse.completedAt, responseId: savedResponse.id, recoveryCode: savedResponse.recoveryCode || code };
+    if (SurveyStorage.isRemote && !responses.some((response) => response.id === savedResponse.id)) responses.push(savedResponse);
     showingMyResults = true;
     saveDraft(); render();
   } else if (event.target.matches('#admin-form')) {
     event.preventDefault();
-    if (event.target.querySelector('#admin-code').value === config.adminCode) {
+    if (SurveyStorage.isRemote) {
+      try {
+        await SurveyStorage.signIn(event.target.querySelector('#admin-email').value, event.target.querySelector('#admin-password').value);
+        adminUnlocked = true;
+        render();
+      } catch (error) {
+        event.target.querySelector('#admin-error').textContent = error.message || 'Connexion impossible.';
+      }
+    } else if (event.target.querySelector('#admin-code').value === config.adminCode) {
       adminUnlocked = true; render();
     } else {
       event.target.querySelector('#admin-error').textContent = 'Code incorrect.';
@@ -572,8 +647,17 @@ document.addEventListener('change', async (event) => {
     const signature = event.target.dataset.groupName;
     const fallbackName = `Groupe ${Number(event.target.getAttribute('aria-label').replace(/\D/g, '')) || 1}`;
     groupNames[signature] = event.target.value.trim() || fallbackName;
-    saveGroupNames();
-    render();
+    if (SurveyStorage.isRemote) {
+      try {
+        await SurveyStorage.saveGroupName(signature, groupNames[signature]);
+        render();
+      } catch (error) {
+        document.querySelector('#admin-message').textContent = error.message || 'Impossible d’enregistrer le nom du groupe.';
+      }
+    } else {
+      saveGroupNames();
+      render();
+    }
     return;
   }
   if (!event.target.matches('[data-import-responses]') || !event.target.files?.[0]) return;
@@ -592,12 +676,19 @@ document.addEventListener('change', async (event) => {
       if (response.id) knownIds.add(response.id);
       return true;
     }).map((response) => ({ ...response, id: response.id || createResponseId() }));
+    if (SurveyStorage.isRemote) {
+      for (const response of freshResponses) await SurveyStorage.saveResponse(response);
+    }
     responses.push(...freshResponses);
     if (parsed.groupNames && typeof parsed.groupNames === 'object' && !Array.isArray(parsed.groupNames)) {
       groupNames = { ...groupNames, ...parsed.groupNames };
-      saveGroupNames();
+      if (SurveyStorage.isRemote) {
+        for (const [signature, name] of Object.entries(parsed.groupNames)) await SurveyStorage.saveGroupName(signature, name);
+      } else {
+        saveGroupNames();
+      }
     }
-    saveResponses();
+    if (!SurveyStorage.isRemote) saveResponses();
     render();
     document.querySelector('#admin-message').textContent = `${freshResponses.length} nouvelle${freshResponses.length > 1 ? 's' : ''} réponse${freshResponses.length > 1 ? 's' : ''} importée${freshResponses.length > 1 ? 's' : ''}.`;
   } catch (error) {
@@ -606,4 +697,8 @@ document.addEventListener('change', async (event) => {
 });
 
 document.querySelector('#proposal-count').textContent = `${proposals.length} propositions`;
+document.querySelector('#storage-status').textContent = SurveyStorage.isRemote
+  ? 'Réponses partagées en ligne avec les autres répondants.'
+  : 'Les réponses de cette version restent dans ce navigateur.';
 render();
+void reloadRemoteData();
