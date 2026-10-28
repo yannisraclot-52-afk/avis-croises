@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f2f1e9">
+    <meta name="description" content="Un questionnaire d'opinions pour découvrir les affinités entre participants.">
+    <title>Avis croisés — les affinités se dessinent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script src="propositions.js" defer></script>
+    <script src="config.js" defer></script>
+    <script src="clustering.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#accueil" aria-label="Avis croisés, accueil">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span>avis <b>croisés</b></span>
+      </a>
+      <nav class="main-nav" aria-label="Navigation principale">
+        <button class="nav-link is-active" type="button" data-view="survey" aria-pressed="true">Questionnaire</button>
+        <button class="nav-link" type="button" data-view="admin" aria-pressed="false">Administration</button>
+      </nav>
+      <span class="topbar-note"><span class="status-dot"></span><span id="proposal-count">30 propositions</span></span>
+    </header>
+
+    <main id="accueil" class="page-shell">
+      <div class="page-intro">
+        <div>
+          <p class="eyebrow"><span class="eyebrow-rule"></span> Questionnaire d'affinités</p>
+          <h1>Les avis se croisent.<br><em>Les affinités apparaissent.</em></h1>
+        </div>
+        <p class="intro-note">30 personnes, 5 nuances d'opinion.<br>À chacun son point de vue.</p>
+      </div>
+      <section id="app-view" class="app-view" aria-live="polite" aria-atomic="true"></section>
+    </main>
+
+    <footer class="page-footer">
+      <span>Avis croisés <span class="footer-dot">/</span> version de préparation</span>
+      <span>Les réponses de cette version restent dans ce navigateur.</span>
+    </footer>
+  </body>
+</html>
